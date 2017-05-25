@@ -173,7 +173,6 @@
             <repositoryName>java-circuit-breaker</repositoryName>
             <repositoryOwner>mercadolibre</repositoryOwner>
             <noJekyll>true</noJekyll>
-            <merge>true</merge>
         </configuration>
         <executions>
           <execution>
