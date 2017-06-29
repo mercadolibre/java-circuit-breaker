@@ -1,15 +1,33 @@
 package com.mercadolibre.resilience.breaker.control;
 
-import com.mercadolibre.resilience.breaker.Action;
+import com.mercadolibre.resilience.breaker.Verifiable;
+import com.mercadolibre.resilience.breaker.collector.Collector;
 
-public interface CircuitControl {
 
-    <T> void register(Action<T> action, T data);
+public abstract class CircuitControl<K> {
 
-    <T> void register(Action<T> action, Exception e);
+    public <T> void register(Verifiable<T> action, T data) {
+        boolean result = action.isValid(data, null);
+        collector().collect(getKey(), result);
+    }
 
-    boolean shouldOpen();
+    public <T> void register(Verifiable<T> action, Throwable t) {
+        boolean result = action.isValid(null, t);
+        collector().collect(getKey(), result);
+    }
 
-    boolean shouldClose();
+    protected abstract Collector<K> collector();
+
+    protected abstract K getKey();
+
+    public abstract boolean shouldOpen();
+
+    public boolean shouldClose() {
+        return !shouldOpen();
+    }
+
+    public void shutdown() {
+        collector().shutdown();
+    }
 
 }
