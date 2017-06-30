@@ -1,18 +1,86 @@
 package com.mercadolibre.resilience.breaker;
 
+import com.mercadolibre.common.async.Callback;
 import com.mercadolibre.resilience.breaker.control.MockControl;
 import org.junit.Test;
 
-import static com.mercadolibre.resilience.breaker.TestUtil.*;
-
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.mercadolibre.resilience.breaker.TestUtil.getAttribute;
+import static com.mercadolibre.resilience.breaker.TestUtil.setAttribute;
 import static org.junit.Assert.*;
 
 
-public class CircuitBreakerTest {
+public class CircuitBreakerAsyncTest {
+
+    private static class SimpleCallback implements Callback<Boolean> {
+        private final CountDownLatch latch;
+        private final AtomicBoolean result;
+        private final AtomicReference<Throwable> tReference;
+
+        public SimpleCallback(CountDownLatch latch, AtomicBoolean result, AtomicReference<Throwable> tReference) {
+            this.latch = latch;
+            this.result = result;
+            this.tReference = tReference;
+        }
+
+        @Override
+        public void success(Boolean response) {
+            result.set(response);
+            latch.countDown();
+        }
+
+        @Override
+        public void failure(Throwable t) {
+            tReference.set(t);
+            latch.countDown();
+        }
+
+        @Override
+        public void cancel() {
+
+        }
+    }
+
+    private void runAsync(CircuitBreaker breaker, final Class<? extends Throwable> expected) throws InterruptedException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicBoolean result = new AtomicBoolean(false);
+        AtomicReference<Throwable> tReference = new AtomicReference<>();
+
+        breaker.run(new AsyncAction<Boolean, Object>() {
+            @Override
+            public boolean isValid(Boolean result, Throwable t) {
+                return Boolean.TRUE.equals(result) && t == null;
+            }
+
+            @Override
+            public Object get(Callback<Boolean> callback) {
+                if (expected == null)
+                    callback.success(true);
+                else try {
+                    callback.failure(expected.newInstance());
+                } catch (InstantiationException | IllegalAccessException e) {
+                    callback.failure(e);
+                }
+
+                return null;
+            }
+        }, new SimpleCallback(latch, result, tReference));
+
+        latch.await();
+
+        if (expected == null) {
+            assertTrue(result.get());
+            assertNull(tReference.get());
+        } else {
+            assertFalse(result.get());
+            assertTrue(expected.isInstance(tReference.get()));
+        }
+    }
 
     @Test @SuppressWarnings("unchecked")
     public void shouldOperateWhileClosedWithOpeningControl() throws Exception {
@@ -22,19 +90,7 @@ public class CircuitBreakerTest {
 
         CircuitBreaker breaker = new CircuitBreaker(1, 1, control);
 
-        boolean result = breaker.run(new Action<Boolean>() {
-            @Override
-            public Boolean get() throws Exception {
-                return true;
-            }
-
-            @Override
-            public boolean isValid(Boolean result, Throwable t) {
-                return Boolean.TRUE.equals(result) && t == null;
-            }
-        });
-
-        assertTrue(result);
+        runAsync(breaker, null);
 
         CircuitBreaker.BreakerState state = ((AtomicReference<CircuitBreaker.BreakerState>) getAttribute(breaker, "state")).get();
 
@@ -46,19 +102,7 @@ public class CircuitBreakerTest {
     public void shouldOperateWhileClosedWithIdleControl() throws Exception {
         CircuitBreaker breaker = new CircuitBreaker(1, 1, new MockControl());
 
-        boolean result = breaker.run(new Action<Boolean>() {
-            @Override
-            public Boolean get() throws Exception {
-                return true;
-            }
-
-            @Override
-            public boolean isValid(Boolean result, Throwable t) {
-                return Boolean.TRUE.equals(result) && t == null;
-            }
-        });
-
-        assertTrue(result);
+        runAsync(breaker, null);
 
         CircuitBreaker.BreakerState state = ((AtomicReference<CircuitBreaker.BreakerState>) getAttribute(breaker, "state")).get();
 
@@ -66,21 +110,11 @@ public class CircuitBreakerTest {
         assertNull(getAttribute(breaker, "openBegin"));
     }
 
-    @Test(expected = ExecutionException.class)
+    @Test
     public void shouldReThrowActionWithException() throws Exception {
         CircuitBreaker breaker = new CircuitBreaker(1, 1, new MockControl());
 
-        breaker.run(new Action<Boolean>() {
-            @Override
-            public Boolean get() throws Exception {
-                throw new RuntimeException();
-            }
-
-            @Override
-            public boolean isValid(Boolean result, Throwable t) {
-                return Boolean.TRUE.equals(result) && t == null;
-            }
-        });
+        runAsync(breaker, RuntimeException.class);
     }
 
     @Test @SuppressWarnings("unchecked")
@@ -91,19 +125,7 @@ public class CircuitBreakerTest {
 
         setAttribute(state, "state", State.HALF_OPEN);
 
-        boolean result = breaker.run(new Action<Boolean>() {
-            @Override
-            public Boolean get() throws Exception {
-                return true;
-            }
-
-            @Override
-            public boolean isValid(Boolean result, Throwable t) {
-                return Boolean.TRUE.equals(result) && t == null;
-            }
-        });
-
-        assertTrue(result);
+        runAsync(breaker, null);
 
         state = ((AtomicReference<CircuitBreaker.BreakerState>) getAttribute(breaker, "state")).get();
 
@@ -124,19 +146,7 @@ public class CircuitBreakerTest {
         setAttribute(state, "state", State.HALF_OPEN);
         setAttribute(breaker, "halfOpenBegin", System.currentTimeMillis() + 10000);
 
-        boolean result = breaker.run(new Action<Boolean>() {
-            @Override
-            public Boolean get() throws Exception {
-                return true;
-            }
-
-            @Override
-            public boolean isValid(Boolean result, Throwable t) {
-                return Boolean.TRUE.equals(result) && t == null;
-            }
-        });
-
-        assertTrue(result);
+        runAsync(breaker, null);
 
         state = ((AtomicReference<CircuitBreaker.BreakerState>) getAttribute(breaker, "state")).get();
 
@@ -158,19 +168,7 @@ public class CircuitBreakerTest {
         setAttribute(state, "state", State.HALF_OPEN);
         setAttribute(breaker, "halfOpenBegin", 0L);
 
-        boolean result = breaker.run(new Action<Boolean>() {
-            @Override
-            public Boolean get() throws Exception {
-                return true;
-            }
-
-            @Override
-            public boolean isValid(Boolean result, Throwable t) {
-                return Boolean.TRUE.equals(result) && t == null;
-            }
-        });
-
-        assertTrue(result);
+        runAsync(breaker, null);
 
         state = ((AtomicReference<CircuitBreaker.BreakerState>) getAttribute(breaker, "state")).get();
 
@@ -191,17 +189,7 @@ public class CircuitBreakerTest {
         boolean thrown = false;
 
         try {
-            breaker.run(new Action<Boolean>() {
-                @Override
-                public Boolean get() throws Exception {
-                    return true;
-                }
-
-                @Override
-                public boolean isValid(Boolean result, Throwable t) {
-                    return Boolean.TRUE.equals(result) && t == null;
-                }
-            });
+            runAsync(breaker, null);
         } catch (RejectedExecutionException e) {
             thrown = true;
         }
@@ -223,17 +211,7 @@ public class CircuitBreakerTest {
         boolean thrown = false;
 
         try {
-            breaker.run(new Action<Boolean>() {
-                @Override
-                public Boolean get() throws Exception {
-                    return true;
-                }
-
-                @Override
-                public boolean isValid(Boolean result, Throwable t) {
-                    return Boolean.TRUE.equals(result) && t == null;
-                }
-            });
+            runAsync(breaker, null);
         } catch (RejectedExecutionException e) {
             thrown = true;
         }
