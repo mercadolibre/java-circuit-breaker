@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class CircuitBreaker {
 
-    private static class BreakerState {
+    static class BreakerState {
         private State state;
         private long epoch;
 

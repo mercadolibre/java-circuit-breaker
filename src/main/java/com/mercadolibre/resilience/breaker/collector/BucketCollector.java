@@ -5,7 +5,6 @@ import com.mercadolibre.resilience.breaker.stats.SimpleStats;
 import com.mercadolibre.resilience.breaker.stats.Stats;
 
 import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.SortedSet;
 import java.util.concurrent.*;
@@ -84,7 +83,7 @@ public class BucketCollector implements Collector<Long> {
 
             if (stats != null && !isStaled(newest, ts) && stats.count() >= minMeasures) output.add(stats);
 
-            if (ts < newest - maxSize) measures.remove(ts);
+            if (ts <= newest - maxSize) measures.remove(ts);
         }
 
         timestamps.removeAll(buckets.headSet(buckets.last() - maxSize + 2));
